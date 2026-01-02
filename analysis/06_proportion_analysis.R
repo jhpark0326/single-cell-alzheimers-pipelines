@@ -1,20 +1,11 @@
 # Title: Proportion analysis (cluster + cell type)
-# Project: <YOUR_PROJECT_NAME>
-# Author: <YOUR_NAME>
+# Project: AD snRNA-seq multi-model analysis
+# Author: Jung Hyun Park
 #
-# Purpose:
-#   Quantify composition changes across experimental conditions at:
-#     (1) cluster level (e.g., seurat_clusters)
-#     (2) cell-type level (e.g., cell_type)
+# Purpose: Quantify composition changes across experimental conditions at:
+#     (1) cluster level 
+#     (2) cell-type level 
 #   using propeller (speckle) with limma modeling.
-#
-# Notes:
-#   - No setwd(); run from repo root.
-#   - Uses obj$ID as sample identifier and obj$Condition as the group variable.
-#   - Does not reference genotype-specific labels; uses Condition levels found in object.
-#   - Requires metadata columns: ID, Condition.
-#   - Output paths are relative (created if missing).
-############################################################
 
 suppressPackageStartupMessages({
   library(Seurat)
