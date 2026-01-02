@@ -1,0 +1,9 @@
+sample_id,id,condition,sex,age_months,batch
+sample_A01,S01,condition_A,M,9,batch1
+sample_A02,S02,condition_A,F,9,batch1
+sample_B01,S03,condition_B,M,9,batch1
+sample_B02,S04,condition_B,F,9,batch1
+sample_C01,S05,condition_C,M,9,batch2
+sample_C02,S06,condition_C,F,9,batch2
+sample_D01,S07,condition_D,M,9,batch2
+sample_D02,S08,condition_D,F,9,batch2
