@@ -23,3 +23,13 @@ outputs/
 __pycache__/
 *.pyc
 .DS_Store
+
+# Local metadata (do not commit)
+data/metadata.csv
+
+# Local mapping files (commit only *_template.csv)
+config/*.csv
+!config/*_template.csv
+
+# Outputs (do not commit)
+outputs/
