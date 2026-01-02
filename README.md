@@ -1,7 +1,7 @@
-# AD snRNA-seq multi-model analysis
+# snRNA-seq analysis pipeline for Alzheimer's disease multi-model conditions 
 
 This repository demonstrates an end-to-end single-nucleus RNA-seq (snRNA-seq)
-analysis pipeline for Alzheimer's disease mouse models using 10x Genomics data.
+analysis pipeline for Alzheimer's disease mouse models using 10x Genomics.
 
 The analysis integrates multiple AD-related mouse models to:
 - perform quality control and preprocessing,
