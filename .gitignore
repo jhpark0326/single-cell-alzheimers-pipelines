@@ -1,0 +1,25 @@
+# ---- Data (never commit) ----
+data/10x/
+data/raw/
+data/processed/
+
+# Real metadata (use template instead)
+data/metadata.csv
+
+# ---- Outputs (never commit) ----
+outputs/
+*.rds
+*.h5ad
+*.loom
+*.pdf
+*.png
+*.csv
+*log.txt
+
+# ---- R / Python / OS junk ----
+.Rhistory
+.RData
+.Rproj.user/
+__pycache__/
+*.pyc
+.DS_Store
