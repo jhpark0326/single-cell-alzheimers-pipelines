@@ -37,8 +37,13 @@ harmony_vars <- c("ID")  # change to c("Batch","ID") if needed
 
 # PCA / clustering defaults
 npcs  <- 50
-ndims <- 30
 cluster_resolution <- 0.2
+choose_ndims <- function(seu, target = 90, min_dims = 10, max_dims = 50) {
+  pvar <- seu[["pca"]]@stdev^2
+  cumv <- cumsum(pvar / sum(pvar) * 100)
+  nd <- min(which(cumv >= target))
+  max(min_dims, min(nd, max_dims))
+}
 
 # Optional “hard doublet” rule (flags only; does NOT remove cells)
 use_hard_doublet <- TRUE
@@ -123,10 +128,12 @@ VariableFeatures(obj) <- integ_features
 obj <- RunPCA(obj, assay = "SCT", npcs = npcs, verbose = FALSE)
 saveRDS(obj, file.path(out_dir, "merged_preintegration.rds"))
 
+ndims <- choose_ndims(obj, target = 90, min_dims = 10, max_dims = 50)
+# elbow plot for manual sanity check
 pdf(file.path(fig_dir, "pca_elbow_preintegration.pdf"), width = 7, height = 5)
-print(ElbowPlot(obj, ndims = min(50, npcs)))
+print(ElbowPlot(obj, ndims = npcs))
 dev.off()
-
+obj@misc$ndims_harmony <- ndims
 # -----------------------
 # Harmony integration (SCT PCs)
 # -----------------------
@@ -149,7 +156,7 @@ obj <- RunHarmony(
 # Cluster/UMAP on Harmony embedding
 obj <- FindNeighbors(obj, reduction = "harmony", dims = 1:ndims, verbose = FALSE)
 obj <- FindClusters(obj, resolution = cluster_resolution, verbose = FALSE)
-obj <- RunUMAP(obj, reduction = "harmony", dims = 1:ndims, verbose = FALSE)
+obj <- RunUMAP(obj, reduction = "harmony", dims = 1:ndims, verbose = FALSE, reduction.name="umap.harmony")
 
 saveRDS(obj, file.path(out_dir, "integrated_harmony.rds"))
 
