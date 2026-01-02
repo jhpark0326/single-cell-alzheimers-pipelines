@@ -27,9 +27,6 @@ __pycache__/
 # Local metadata (do not commit)
 data/metadata.csv
 
-# Local mapping files (commit only *_template.csv)
-config/*.csv
-!config/*_template.csv
-
-# Outputs (do not commit)
+# Ignore outputs
 outputs/
+
