@@ -17,263 +17,208 @@ suppressPackageStartupMessages({
   library(openxlsx)
 })
 
-# -----------------------------
-# Inputs / Outputs
-# -----------------------------
-OBJ_PATH <- "outputs/annotation/annotated.rds"
+# ==============================
+# USER-SET SECTION
+# ==============================
+
+INPUT_RDS <- "outputs/annotation/annotated.rds"
 
 OUT_DIR <- "outputs/proportion"
-PLOT_DIR <- file.path(OUT_DIR, "plots")
-TAB_DIR  <- file.path(OUT_DIR, "tables")
-
 dir.create(OUT_DIR, recursive = TRUE, showWarnings = FALSE)
-dir.create(PLOT_DIR, recursive = TRUE, showWarnings = FALSE)
-dir.create(TAB_DIR,  recursive = TRUE, showWarnings = FALSE)
 
-# Toggle: if you have 3+ conditions, also compute all pairwise contrasts
-RUN_PAIRWISE_IF_MULTI <- TRUE
+CONTROL_LEVEL <- "Control"  # must match seu$Condition
 
-# -----------------------------
-# Load object
-# -----------------------------
-obj <- readRDS(OBJ_PATH)
+# Planned contrasts: each condition vs control
+RUN_VS_CONTROL <- TRUE
+# Optional global test (provided for readers; OFF by default)
+RUN_ANOVA_OPTIONAL <- FALSE
 
-# Basic checks
-stopifnot("ID" %in% colnames(obj@meta.data))
-stopifnot("Condition" %in% colnames(obj@meta.data))
+# Transformation for propeller
+TRANSFORM <- "logit"  # recommended; alternatives: "asin"
 
-obj$ID <- as.character(obj$ID)
-obj$Condition <- as.character(obj$Condition)
+# ==============================
+# Load object + sanity checks
+# ==============================
 
-# Drop cells missing essentials
-keep <- !is.na(obj$ID) & obj$ID != "" & !is.na(obj$Condition) & obj$Condition != ""
-obj <- subset(obj, cells = colnames(obj)[keep])
-
-# Freeze condition levels as they appear (stable ordering in outputs)
-cond_levels <- unique(obj$Condition)
-obj$Condition <- factor(obj$Condition, levels = cond_levels)
-
-message("Conditions found: ", paste(levels(obj$Condition), collapse = ", "))
-message("N samples (unique IDs): ", length(unique(obj$ID)))
-
-# -----------------------------
-# Optional QC / sanity plots
-# -----------------------------
-# Only run if these columns/reductions exist (doesn't error if not)
-if ("umap.harmony" %in% names(obj@reductions)) {
-  pdf(file.path(PLOT_DIR, "umap_by_condition.pdf"), width = 7, height = 6)
-  print(DimPlot(obj, reduction = "umap.harmony", group.by = "Condition", raster = FALSE) +
-          ggtitle("UMAP by Condition"))
-  dev.off()
-
-  if ("Sex" %in% colnames(obj@meta.data)) {
-    pdf(file.path(PLOT_DIR, "umap_by_sex.pdf"), width = 7, height = 6)
-    print(DimPlot(obj, reduction = "umap.harmony", group.by = "Sex", raster = FALSE) +
-            ggtitle("UMAP by Sex"))
-    dev.off()
-  }
+if (!file.exists(INPUT_RDS)) {
+  stop("Cannot find INPUT_RDS: ", INPUT_RDS,
+       "\nTip: run this script from repo root, or update INPUT_RDS.")
 }
 
-# If you track doublets with a column like DF/Doublet/etc, plot if present
-if ("DF" %in% colnames(obj@meta.data) && "umap.harmony" %in% names(obj@reductions)) {
-  pdf(file.path(PLOT_DIR, "umap_by_doublet_flag.pdf"), width = 7, height = 6)
-  print(DimPlot(obj, reduction = "umap.harmony", group.by = "DF", raster = FALSE) +
-          ggtitle("UMAP by Doublet Flag"))
-  dev.off()
+seu <- readRDS(INPUT_RDS)
+
+req_cols <- c("sample_id", "ID", "Condition", "Sex", "Age_months", "cluster_label", "cell_type")
+missing <- setdiff(req_cols, colnames(seu@meta.data))
+if (length(missing) > 0) {
+  stop("Missing required metadata columns: ", paste(missing, collapse = ", "))
 }
 
-# -----------------------------
-# Helper: run propeller and write results
-# -----------------------------
-run_propeller <- function(cluster_vec, sample_vec, group_vec,
-                          out_prefix,
-                          transform = "logit",
-                          run_pairwise = TRUE) {
-
-  # speckle expects vectors of same length
-  stopifnot(length(cluster_vec) == length(sample_vec))
-  stopifnot(length(sample_vec) == length(group_vec))
-
-  props <- getTransformedProps(clusters = cluster_vec,
-                               sample   = sample_vec,
-                               transform = transform)
-
-  # Ensure group factor aligns with props sample columns
-  # props$Proportions columns are samples; sample_vec is per-cell.
-  # Build a sample-level group vector in the same order as colnames(props$Proportions).
-  sample_order <- colnames(props$Proportions)
-  sample_to_group <- data.frame(
-    ID = sample_vec,
-    Group = group_vec,
-    stringsAsFactors = FALSE
-  ) %>%
-    distinct(ID, Group)
-
-  group_by_sample <- sample_to_group$Group[match(sample_order, sample_to_group$ID)]
-  if (any(is.na(group_by_sample))) {
-    stop("Some samples in props are missing group labels. Check ID/Condition mapping.")
-  }
-
-  group_by_sample <- factor(group_by_sample, levels = levels(group_vec))
-  props$group <- group_by_sample
-
-  # Build design
-  design <- model.matrix(~ 0 + group, data = props)
-  colnames(design) <- gsub("^group", "", colnames(design))  # cleaner column names
-
-  # Decide test:
-  n_groups <- nlevels(props$group)
-
-  results <- list()
-
-  if (n_groups == 2) {
-    # Single contrast: group2 - group1
-    lv <- levels(props$group)
-    contrast_str <- paste0(lv[2], "-", lv[1])
-    contr <- makeContrasts(contrasts = contrast_str, levels = design)
-
-    res <- as.data.frame(
-      propeller.ttest(props, design, contrasts = contr,
-                      robust = TRUE, trend = FALSE, sort = TRUE)
-    )
-    results[[paste0(lv[2], "_vs_", lv[1])]] <- res
-
-  } else {
-    # ANOVA-style test across all groups
-    res <- as.data.frame(
-      propeller.anova(props, design,
-                      robust = TRUE, trend = FALSE, sort = TRUE)
-    )
-    results[["ANOVA_all_groups"]] <- res
-
-    # Optional: all pairwise contrasts
-    if (run_pairwise) {
-      lv <- levels(props$group)
-      pair_names <- combn(lv, 2, simplify = FALSE)
-
-      for (p in pair_names) {
-        contrast_str <- paste0(p[2], "-", p[1])
-        contr <- makeContrasts(contrasts = contrast_str, levels = design)
-
-        res_pw <- as.data.frame(
-          propeller.ttest(props, design, contrasts = contr,
-                          robust = TRUE, trend = FALSE, sort = TRUE)
-        )
-        results[[paste0(p[2], "_vs_", p[1])]] <- res_pw
-      }
-    }
-  }
-
-  # Write XLSX (one sheet per result)
-  wb <- createWorkbook()
-  for (nm in names(results)) {
-    addWorksheet(wb, nm)
-    writeData(wb, nm, results[[nm]], rowNames = TRUE)
-  }
-  xlsx_path <- file.path(TAB_DIR, paste0(out_prefix, "_propeller_results.xlsx"))
-  saveWorkbook(wb, file = xlsx_path, overwrite = TRUE)
-
-  # Return both props and results for plotting
-  return(list(props = props, results = results, design = design))
+seu$Condition <- factor(seu$Condition)
+if (!(CONTROL_LEVEL %in% levels(seu$Condition))) {
+  stop("CONTROL_LEVEL '", CONTROL_LEVEL, "' not found in seu$Condition levels: ",
+       paste(levels(seu$Condition), collapse = ", "))
 }
 
-# -----------------------------
-# Helper: barplot mean +/- SE from props
-# -----------------------------
-plot_props_bar <- function(props_obj, out_pdf,
-                           x_label = "Group",
-                           y_label = "Proportion of nuclei",
-                           title = NULL,
-                           rotate_x = TRUE) {
+# ==============================
+# Helper: plotting + excel
+# ==============================
 
-  # props_obj$Proportions: rows = clusters, cols = samples
-  props_long <- as.data.frame(props_obj$Proportions) %>%
-    tibble::rownames_to_column("Label") %>%
-    pivot_longer(cols = -Label, names_to = "ID", values_to = "Proportion") %>%
-    left_join(
-      data.frame(ID = colnames(props_obj$Proportions),
-                 Group = props_obj$group,
-                 stringsAsFactors = FALSE),
-      by = "ID"
-    )
+plot_mean_se <- function(props, sample_meta, feature_name, out_pdf) {
+  df <- as.data.frame(props$Proportions) |>
+    tibble::rownames_to_column("feature") |>
+    pivot_longer(-feature, names_to = "sample_id", values_to = "proportion") |>
+    left_join(sample_meta |> select(sample_id, Condition), by = "sample_id")
 
-  # Summarize mean/se per Label x Group
-  summary_df <- props_long %>%
-    group_by(Label, Group) %>%
+  sumdf <- df |>
+    group_by(feature, Condition) |>
     summarise(
-      mean_value = mean(Proportion),
-      se_value   = sd(Proportion) / sqrt(n()),
+      mean_value = mean(proportion, na.rm = TRUE),
+      se_value = sd(proportion, na.rm = TRUE) / sqrt(sum(!is.na(proportion))),
       .groups = "drop"
     )
 
-  summary_df$Group <- factor(summary_df$Group, levels = levels(props_obj$group))
+  sumdf$feature <- factor(sumdf$feature, levels = unique(sumdf$feature))
 
-  p <- ggplot(summary_df, aes(x = Label, y = mean_value, fill = Group)) +
-    geom_bar(stat = "identity", position = position_dodge(width = 0.8)) +
-    geom_errorbar(aes(ymin = pmax(mean_value - se_value, 0),
-                      ymax = mean_value + se_value),
-                  position = position_dodge(width = 0.8),
-                  width = 0.25) +
-    labs(x = NULL, y = y_label, fill = x_label, title = title) +
-    theme_minimal(base_size = 14)
-
-  if (rotate_x) {
-    p <- p + theme(axis.text.x = element_text(angle = 45, hjust = 1))
-  }
-
-  pdf(out_pdf, width = 11, height = 7)
-  print(p)
+  pdf(out_pdf, width = 11, height = 8)
+  print(
+    ggplot(sumdf, aes(x = feature, y = mean_value, fill = Condition)) +
+      geom_bar(stat = "identity", position = position_dodge(width = 0.8)) +
+      geom_errorbar(
+        aes(ymin = pmax(mean_value - se_value, 0), ymax = mean_value + se_value),
+        position = position_dodge(width = 0.8),
+        width = 0.25
+      ) +
+      labs(x = feature_name, y = "Mean proportion (across samples)", fill = "Condition") +
+      theme_minimal(base_size = 14) +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  )
   dev.off()
 }
 
-# ============================================================
-# Part 1: Cluster-level proportion analysis
-# ============================================================
+write_xlsx <- function(path, sheets) {
+  wb <- createWorkbook()
+  for (nm in names(sheets)) {
+    addWorksheet(wb, nm)
+    writeData(wb, nm, sheets[[nm]], rowNames = TRUE)
+  }
+  saveWorkbook(wb, path, overwrite = TRUE)
+}
 
-# You can change this if your “cluster identity” column differs
-# We keep it exactly like your prior scripts: seurat_clusters
-stopifnot("seurat_clusters" %in% colnames(obj@meta.data))
+# ==============================
+# Core runner
+# ==============================
 
-cluster_res <- run_propeller(
-  cluster_vec = obj$seurat_clusters,
-  sample_vec  = obj$ID,
-  group_vec   = obj$Condition,
-  out_prefix  = "cluster",
-  transform   = "logit",
-  run_pairwise = RUN_PAIRWISE_IF_MULTI
+run_propeller <- function(feature_vec, feature_name, out_prefix) {
+
+  # propeller tests are sample-level, so we need one row per sample_id
+  sample_meta <- seu@meta.data |>
+    transmute(
+      sample_id  = as.character(sample_id),
+      Condition  = Condition,
+      ID         = as.character(ID),
+      Sex        = as.character(Sex),
+      Age_months = as.character(Age_months),
+      Batch      = if ("Batch" %in% colnames(seu@meta.data)) as.character(Batch) else NA_character_
+    ) |>
+    group_by(sample_id) |>
+    summarise(
+      Condition  = first(Condition),
+      ID         = first(ID),
+      Sex        = first(Sex),
+      Age_months = first(Age_months),
+      Batch      = first(Batch),
+      .groups = "drop"
+    )
+
+  # proportions (features x samples)
+  props <- getTransformedProps(
+    clusters = feature_vec,
+    sample   = as.character(seu$sample_id),
+    transform = TRANSFORM
+  )
+
+  # align sample_meta to propeller’s sample order
+  sample_ids <- colnames(props$Proportions)
+  sample_meta <- sample_meta |>
+    filter(sample_id %in% sample_ids) |>
+    mutate(sample_id = factor(sample_id, levels = sample_ids)) |>
+    arrange(sample_id) |>
+    mutate(sample_id = as.character(sample_id))
+
+  if (!identical(sample_ids, sample_meta$sample_id)) {
+    stop("Sample order mismatch between props and sample_meta after alignment.")
+  }
+
+  # design: condition-only (simple + readable)
+  design <- model.matrix(~ 0 + Condition, data = sample_meta)
+  colnames(design) <- levels(sample_meta$Condition)
+
+  results <- list()
+
+  if (RUN_VS_CONTROL) {
+    others <- setdiff(colnames(design), CONTROL_LEVEL)
+    if (length(others) == 0) stop("No non-control conditions found to compare.")
+
+    contr <- makeContrasts(
+      contrasts = paste0(others, " - ", CONTROL_LEVEL),
+      levels = design
+    )
+
+    res <- propeller.ttest(
+      props = props,
+      design = design,
+      contrasts = contr,
+      robust = TRUE,
+      trend = FALSE,
+      sort = TRUE
+    )
+
+    results[["vs_control"]] <- as.data.frame(res)
+    write.csv(results[["vs_control"]],
+              file.path(OUT_DIR, paste0(out_prefix, "_propeller_vs_control.csv")),
+              row.names = TRUE)
+  }
+
+  if (RUN_ANOVA_OPTIONAL) {
+    an <- propeller.anova(
+      clusters = feature_vec,
+      sample   = as.character(seu$sample_id),
+      group    = seu$Condition
+    )
+    results[["anova_all_conditions"]] <- as.data.frame(an)
+    write.csv(results[["anova_all_conditions"]],
+              file.path(OUT_DIR, paste0(out_prefix, "_propeller_anova_all_conditions.csv")),
+              row.names = TRUE)
+  }
+  
+  plot_mean_se(
+    props, sample_meta,
+    feature_name = feature_name,
+    out_pdf = file.path(OUT_DIR, paste0(out_prefix, "_barplot_meanSE.pdf"))
+  )
+
+  write_xlsx(
+    file.path(OUT_DIR, paste0(out_prefix, "_results.xlsx")),
+    results
+  )
+
+  invisible(results)
+}
+
+# ==============================
+# Run cluster_label + cell_type
+# ==============================
+
+res_cluster_label <- run_propeller(
+  feature_vec = as.character(seu$cluster_label),
+  feature_name = "Cluster label",
+  out_prefix = "cluster_label"
 )
 
-plot_props_bar(
-  props_obj = cluster_res$props,
-  out_pdf   = file.path(PLOT_DIR, "barplot_cluster_proportions_by_condition.pdf"),
-  x_label   = "Condition",
-  y_label   = "Proportion of nuclei",
-  title     = "Cluster proportions by condition",
-  rotate_x  = TRUE
-)
-
-# ============================================================
-# Part 2: Cell-type-level proportion analysis
-# ============================================================
-
-stopifnot("cell_type" %in% colnames(obj@meta.data))
-
-celltype_res <- run_propeller(
-  cluster_vec = obj$cell_type,
-  sample_vec  = obj$ID,
-  group_vec   = obj$Condition,
-  out_prefix  = "cell_type",
-  transform   = "logit",
-  run_pairwise = RUN_PAIRWISE_IF_MULTI
-)
-
-plot_props_bar(
-  props_obj = celltype_res$props,
-  out_pdf   = file.path(PLOT_DIR, "barplot_celltype_proportions_by_condition.pdf"),
-  x_label   = "Condition",
-  y_label   = "Proportion of nuclei",
-  title     = "Cell-type proportions by condition",
-  rotate_x  = TRUE
+res_cell_type <- run_propeller(
+  feature_vec = as.character(seu$cell_type),
+  feature_name = "Cell type",
+  out_prefix = "cell_type"
 )
 
 message("Done. Outputs written to: ", OUT_DIR)
