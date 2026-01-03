@@ -1,4 +1,7 @@
 # Single-cell transcriptomics analysis pipelines for Alzheimer's disease  
+![R](https://img.shields.io/badge/R-4.3+-informational)
+![Python](https://img.shields.io/badge/Python-3.10+-informational)
+![HPC](https://img.shields.io/badge/HPC-Slurm-informational)
 
 ## Project
 This repository demonstrates an end-to-end single-cell transcriptomics analysis workflow,
