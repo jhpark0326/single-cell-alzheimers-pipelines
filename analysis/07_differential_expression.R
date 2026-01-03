@@ -1,8 +1,8 @@
-# Title: Differential expression 
+# Title: Differential expression and enrichment analysis
 # Project: AD snRNA-seq multi-model analysis
 # Author: Jung Hyun Park
 # Purpose: Run DE by annotation label (cluster_label or cell_type) across conditions,
-#          then make volcano plots for visualization.
+#          make volcano plots for visualization, and run enrichR for enrichment analysis.
 # Notes:
 #   - DE is performed on the RNA assay; clustering/integration assumed done upstream.
 #   - Uses MAST with TECHNICAL covariates only (latent.vars). Do NOT include biological factors (e.g., Sex).
@@ -211,7 +211,160 @@ for (ct in unique(deg$contrast)) {
   }
 }
 
-
 message("Done.")
 message("DE table: ", file.path(out_dir, paste0("DE_", LABEL_COL, "_all_contrasts.csv")))
 message("Volcano PDFs: ", vol_dir)
+
+
+# -----------------------
+# Enrichr (integrated up + down; per label × contrast)
+# -----------------------
+suppressPackageStartupMessages({
+  library(enrichR)
+})
+
+# ---- Parameters (edit here) ----
+RUN_ENRICHR <- TRUE
+
+enrich_dir <- file.path(out_dir, "enrichr")
+dir_create(enrich_dir)
+
+# Enrichr DBs (edit as desired)
+setEnrichrSite("Enrichr")
+dbs <- c(
+  "GO_Biological_Process_2025",
+  "KEGG_2019_Mouse",
+  "Reactome_Pathways_2024",
+  "WikiPathways_2024_Mouse"
+)
+
+ENRICHR_MIN_GENES   <- 5     # skip if fewer sig genes than this
+ENRICHR_MIN_OVERLAP <- 2     # minimum gene overlap per term
+ENRICHR_TOP_TERMS   <- 10    # terms per DB in plot PDF
+ENRICHR_NUMCHAR     <- 60    # truncate term labels
+ENRICHR_PADJ_CUTOFF <- ALPHA # use same cutoff as DE
+
+if (RUN_ENRICHR) {
+  # Helper: safe Enrichr call
+  safe_enrichr <- function(genes, dbs) {
+    tryCatch(
+      enrichr(genes, dbs),
+      error = function(e) {
+        message("  Enrichr error: ", conditionMessage(e))
+        NULL
+      }
+    )
+  }
+
+  # Helper: filter Enrichr result table
+  prep_enrichr_df <- function(df) {
+    if (!is.data.frame(df) || nrow(df) == 0) return(NULL)
+
+    # Add overlap count from "k/n" -> k
+    if ("Overlap" %in% colnames(df)) {
+      df <- df %>% mutate(Count = as.integer(str_replace(Overlap, "/.*", "")))
+    } else {
+      df$Count <- NA_integer_
+    }
+
+    # Filter by adjusted p-value (if present)
+    if ("Adjusted.P.value" %in% colnames(df)) {
+      df <- df %>%
+        mutate(Adjusted.P.value = as.numeric(Adjusted.P.value)) %>%
+        filter(!is.na(Adjusted.P.value) & Adjusted.P.value <= ENRICHR_PADJ_CUTOFF)
+    }
+
+    # Filter by minimum overlap
+    df <- df %>% filter(!is.na(Count) & Count >= ENRICHR_MIN_OVERLAP)
+    if (nrow(df) == 0) return(NULL)
+    df
+  }
+
+  # Iterate through each (label × contrast), use sig genes (Up + Down together)
+  pairs <- deg %>% distinct(label, contrast) %>% arrange(label, contrast)
+
+  enrich_list <- list()
+  combined_rows <- list()
+
+  for (i in seq_len(nrow(pairs))) {
+    lb <- pairs$label[i]
+    ct <- pairs$contrast[i]
+    message("Enrichr: ", LABEL_COL, "=", lb, "  ", ct)
+
+    genes_use <- deg %>%
+      filter(label == lb, contrast == ct, sig) %>%
+      pull(gene) %>%
+      unique() %>%
+      na.omit()
+
+    if (length(genes_use) < ENRICHR_MIN_GENES) {
+      message("  -> fewer than ", ENRICHR_MIN_GENES, " genes; skipping.")
+      next
+    }
+
+    enrich_res <- safe_enrichr(genes_use, dbs)
+    if (is.null(enrich_res)) next
+
+    key <- paste0(lb, "__", ct)
+    enrich_list[[key]] <- enrich_res
+
+    # One PDF per (label × contrast): one page per DB
+    safe_key <- key %>%
+      str_replace_all("[^A-Za-z0-9_\\-]+", "_") %>%
+      str_replace_all("__+", "__")
+
+    pdf_path <- file.path(enrich_dir, paste0("enrichr__", LABEL_COL, "__", safe_key, ".pdf"))
+    pdf(pdf_path, width = 8, height = 6, onefile = TRUE)
+
+    for (db in names(enrich_res)) {
+      df_db <- enrich_res[[db]]
+      df_filt <- prep_enrichr_df(df_db)
+
+      # collect combined table rows (even if you later skip plotting)
+      if (!is.null(df_filt)) {
+        df_out <- df_filt %>%
+          mutate(
+            label = lb,
+            contrast = ct,
+            Database = db
+          )
+        combined_rows[[length(combined_rows) + 1]] <- df_out
+      }
+
+      # Plot: top terms for this DB
+      if (is.null(df_filt)) {
+        plot.new()
+        title(main = paste0(lb, " — ", ct, "\n", db, " (no terms after filtering)"))
+        next
+      }
+
+      p <- plotEnrich(
+        df_filt,
+        showTerms = ENRICHR_TOP_TERMS,
+        numChar   = ENRICHR_NUMCHAR,
+        title     = paste0(lb, " — ", ct),
+        y         = "Count",
+        orderBy   = "P.value"
+      ) + xlab(db)
+
+      print(p)
+    }
+
+    dev.off()
+  }
+
+  # Save raw Enrichr list + combined CSV
+  saveRDS(enrich_list, file.path(enrich_dir, paste0("enrichr_", LABEL_COL, "_results.rds")))
+
+  combined <- dplyr::bind_rows(combined_rows)
+  if (!is.null(combined) && nrow(combined) > 0) {
+    front <- c("label", "contrast", "Database")
+    cols <- c(front, setdiff(colnames(combined), front))
+    combined <- combined[, cols]
+    readr::write_csv(combined, file.path(enrich_dir, paste0("enrichr_", LABEL_COL, "_results_combined.csv")))
+  } else {
+    message("No Enrichr results to write (combined CSV would be empty).")
+  }
+
+  message("Enrichr outputs: ", enrich_dir)
+}
