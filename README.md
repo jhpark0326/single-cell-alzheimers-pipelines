@@ -38,7 +38,7 @@ analysis/
     ├── 10a_pyscenic_export_from_r.R
     ├── 10b_pyscenic_run_and_visualize.py
     └── 10c_pyscenic_slurm_grn_ctx_aucell.sh
-
+```
 ---
 
 ## Pipeline overview
