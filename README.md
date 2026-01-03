@@ -83,8 +83,8 @@ analysis/
 
 ---
 
-### 05. Annotation (SAHA marker-based + manual mapping)
-- Assignment of cell-type or cell-state labels
+### 05. Annotation (automated + manual mapping)
+- Automated assignment of cell-type labels based on Allen Brain Cell Atlas taxonomy using Semi-automated Hand Annotation for Single Cell and Spatial Datasets (https://github.com/neurogenetics/SAHA)
 - Validation using known markers
 
 **Typical outputs**
