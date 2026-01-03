@@ -1,4 +1,4 @@
-# Title: Data integration (snRNA-seq) - Harmony on the SCT assay
+# Title: Data integration - Harmony on the SCT assay
 # Project: AD snRNA-seq multi-model analysis
 # Author: Jung Hyun Park
 # Purpose: Integrate multiple snRNA-seq samples after preprocessing (SoupX/DF handled upstream).
