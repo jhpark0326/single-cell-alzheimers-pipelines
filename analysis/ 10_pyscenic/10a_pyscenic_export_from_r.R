@@ -19,7 +19,7 @@ suppressPackageStartupMessages({
 # Parameters (edit here)
 # -----------------------
 in_rds  <- "outputs/annotation/annotated.rds"   # your Seurat object
-out_dir <- "outputs/pyscenic/rerun"             # where to write files
+out_dir <- "outputs/pyscenic"             # where to write files
 dir_create(out_dir)
 
 ASSAY_USE <- "RNA"
