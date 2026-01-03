@@ -169,11 +169,6 @@ Analyses were developed and tested using:
 - scanpy / anndata
 - loompy (for `.loom` export when required)
 
-### Computing
-- Local execution for most R-based analyses
-- Python-based pySCENIC workflows executed on high-performance
-  computing systems (Slurm)
-
 Exact package versions are not pinned to keep the repository lightweight and readable.
 
 ---
