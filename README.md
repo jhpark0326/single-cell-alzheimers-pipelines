@@ -23,20 +23,21 @@ This repository provides a modular and reproducible collection of analysis scrip
 
 ## Repository structure
 
+```text
 analysis/
-01_qc_preprocessing.R
-02_integration.R
-03_clustering.R
-04_markers.R
-05_annotation.R
-06_proportion_analysis.R
-07_differential_expression.R
-08_network_analysis_hdWGCNA.R
-09_cellcell_communication.R
-10_pyscenic/
-10a_pyscenic_export_from_r.R
-10b_pyscenic_run_and_visualize.py
-10c_pyscenic_slurm_grn_ctx_aucell.sh
+├── 01_qc_preprocessing.R
+├── 02_integration.R
+├── 03_clustering.R
+├── 04_markers.R
+├── 05_annotation.R
+├── 06_proportion_analysis.R
+├── 07_differential_expression.R
+├── 08_network_analysis_hdWGCNA.R
+├── 09_cellcell_communication.R
+└── 10_pyscenic/
+    ├── 10a_pyscenic_export_from_r.R
+    ├── 10b_pyscenic_run_and_visualize.py
+    └── 10c_pyscenic_slurm_grn_ctx_aucell.sh
 
 ---
 
