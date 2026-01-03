@@ -17,7 +17,7 @@ import loompy as lp
 # Optional (UMAP/tSNE on AUCell)
 import umap
 from MulticoreTSNE import MulticoreTSNE as TSNE
-
+from utils.scenic_utils import load_auc, merge_metadata, save_tables
 np.random.seed(42)
 
 # -----------------------
