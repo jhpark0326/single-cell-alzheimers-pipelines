@@ -1,4 +1,4 @@
-# Title: Proportion analysis (cluster + cell type)
+# Title: Proportion analysis (Speckle propeller)
 # Project: AD snRNA-seq multi-model analysis
 # Author: Jung Hyun Park
 #
